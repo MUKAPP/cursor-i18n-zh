@@ -1,0 +1,29 @@
+{
+  "name": "cursor-i18n-zh",
+  "version": "1.0.4",
+  "description": "Cursor IDE 界面一键汉化工具（Settings + Glass + Automations + Appearance + Agent）",
+  "main": "index.js",
+  "bin": {
+    "cursor-i18n-zh": "./index.js"
+  },
+  "scripts": {
+    "localize": "node index.js localize",
+    "restore": "node index.js restore",
+    "status": "node index.js status",
+    "locale": "node index.js locale",
+    "audit": "node scripts/audit.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": ["cursor", "i18n", "chinese", "localization", "汉化"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/baishi1114010/cursor-i18n-zh.git"
+  },
+  "bugs": {
+    "url": "https://github.com/baishi1114010/cursor-i18n-zh/issues"
+  },
+  "homepage": "https://github.com/baishi1114010/cursor-i18n-zh#readme"
+}
