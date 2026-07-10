@@ -19,7 +19,7 @@ const {
 const { translateFile, fixMacGatekeeper } = require('./src/translate');
 const { configureLocale } = require('./src/locale');
 
-const VERSION = '1.0.4';
+const VERSION = '1.1.0';
 
 function printHelp() {
   console.log(`

@@ -1,6 +1,6 @@
 {
   "name": "cursor-i18n-zh",
-  "version": "1.0.4",
+  "version": "1.1.0",
   "description": "Cursor IDE 界面一键汉化工具（Settings + Glass + Automations + Appearance + Agent）",
   "main": "index.js",
   "bin": {

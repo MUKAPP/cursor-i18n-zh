@@ -144,6 +144,26 @@ function applyTrickyReplacements(content) {
     { regex: /qrS=\{icon:"color-mode",label:"System"\}/g, zh: 'qrS={icon:"color-mode",label:"跟随系统"}' },
     { regex: /light:\{icon:"sun",label:"Light"\}/g, zh: 'light:{icon:"sun",label:"浅色"}' },
     { regex: /dark:\{icon:"moon",label:"Dark"\}/g, zh: 'dark:{icon:"moon",label:"深色"}' },
+    // Plan & Usage JSX 片段
+    { regex: /Current Plan<\/div>/g, zh: '当前套餐</div>' },
+    { regex: /Upgrade Available<\/div>/g, zh: '可升级</div>' },
+    { regex: /Included in \$\{/g, zh: '包含于 ${' },
+    { regex: /Resets on '/g, zh: "重置于 '" },
+    { regex: /"% Auto and"/g, zh: '"% 自动模式，"' },
+    { regex: /"% API used"/g, zh: '"% API 已用"' },
+    // Customize 迁移横幅（Hooks / Tools & MCP）
+    { regex: / are moving to Customize/g, zh: ' 即将迁移至 Customize' },
+    { regex: /Configured Hooks \(\$\{/g, zh: '已配置的钩子 (${' },
+    { regex: /title:`\$\{je\} are moving to Customize`/g, zh: 'title:`${je} 即将迁移至 Customize`' },
+    // JSX / HTML 内嵌文案
+    { regex: />On-Demand Usage/g, zh: '>按需用量' },
+    { regex: />Browser Automation<\/div>/g, zh: '>浏览器自动化</div>' },
+    { regex: / \(Remote Control\)/g, zh: ' (远程控制)' },
+    { regex: /`Remote Control \(/g, zh: '`远程控制 (' },
+    { regex: /`Remote Control \(\$\{/g, zh: '`远程控制 (${' },
+    { regex: /permissions\.json\)`:"Run Mode"/g, zh: 'permissions.json)`:"运行模式"' },
+    { regex: /`Run Mode \(enforced by/g, zh: '`运行模式（由' },
+    { regex: /Connecting to \$\{il\}\. Remote Control will be ready once its agent worker registers\./g, zh: '正在连接到 ${il}。远程控制将在其智能体工作进程注册后就绪。' },
   ];
 
   let result = content;

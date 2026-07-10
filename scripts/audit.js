@@ -41,6 +41,33 @@ const PRIORITY_STRINGS = [
   ['UI Font Size', 'Appearance → 界面字体大小'],
   ['Reduce Transparency', 'Appearance → 降低透明度'],
   ['Choose between light, dark', 'Appearance → 主题描述'],
+  // ① 账号 Profile
+  ['Create your public profile', 'Profile → 创建公开资料'],
+  ['Claim handle', 'Profile → 认领用户名'],
+  // ② 外观补全
+  ['Reduce Motion', 'Appearance → 减少动效'],
+  ['Hide Email Address', 'Appearance → 隐藏邮箱'],
+  // ③ 套餐与用量
+  ['Current Plan</div>', 'Plan → 当前套餐'],
+  ['Upgrade Available</div>', 'Plan → 可升级'],
+  ['Included in Pro+', 'Plan → Pro+ 包含'],
+  ['On-Demand Usage', 'Plan → 按需用量'],
+  ['Auto + Composer', 'Plan → Auto+Composer'],
+  // ④ 智能体补全
+  ['Code Block Word Wrap', 'Agents → 代码块换行'],
+  ['Remote Control', 'Agents → 远程控制'],
+  ['Run Mode', 'Agents → 运行模式'],
+  // ⑤ 工作树
+  ['Max worktrees', 'Worktree → 最大工作树数'],
+  ['No Cursor-managed worktrees on this machine.', 'Worktree → 空状态'],
+  // ⑥ 工具与 MCP
+  ['Wait for MCP Authentication', 'MCP → 等待认证'],
+  ['Browser Automation', 'MCP → 浏览器自动化'],
+  ['Team MCP Servers', 'MCP → 团队服务器'],
+  // ⑦ 钩子
+  ['Configured Hooks', 'Hooks → 已配置钩子'],
+  ['Open user config', 'Hooks → 打开用户配置'],
+  [' are moving to Customize', 'Hooks/MCP → Customize 迁移'],
 ];
 
 function auditFile(label, filePath) {
