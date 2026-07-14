@@ -2,22 +2,28 @@
 
 const path = require('path');
 const fs = require('fs');
-const { ensureBackup, restoreFromBackup, hasBackup, getBackupDir } = require('./src/backup');
+const {
+  ensureBackup,
+  restoreFromBackup,
+  hasBackup,
+  getBackupDir,
+} = require('./src/backup');
+const { parseCommandLine } = require('./src/cli');
 const { fixProductHashes } = require('./src/hash');
 const {
   detectCursorPath,
   readCursorVersion,
-  isCursorRunning,
+  detectCursorProcesses,
   needsElevation,
   isRoot,
-  elevateAndRun,
   prepareAppForWrite,
   readState,
   writeState,
+  isStateForInstallation,
   PLATFORM,
 } = require('./src/platform');
 const { translateFile, fixMacGatekeeper } = require('./src/translate');
-const { configureLocale } = require('./src/locale');
+const { configureLocale, readLocaleConfiguration } = require('./src/locale');
 
 const VERSION = '1.1.0';
 
@@ -26,55 +32,79 @@ function printHelp() {
 Cursor 界面汉化工具 v${VERSION}
 
 用法:
-  node index.js localize   一键汉化（Settings + Glass + Agent）
-  node index.js restore    恢复英文原版
-  node index.js status     查看当前状态
-  node index.js locale     仅配置 VS Code 中文语言包
-  node index.js help       显示帮助
+  node index.js localize [--app-path <路径>]   一键汉化（Settings + Glass + Agent）
+  node index.js restore [--app-path <路径>]    恢复英文原版
+  node index.js status [--app-path <路径>]     查看当前状态
+  node index.js locale                         仅配置 VS Code 中文语言包
+  node index.js help                           显示帮助
 
 说明:
-  - 汉化前请先完全退出 Cursor（Cmd+Q）
-  - 若权限不足，工具会弹出 macOS 授权对话框
-  - 也可手动运行: sudo node index.js localize
+  - 汉化前请先完全退出 Cursor
+  - 可通过 --app-path 或 CURSOR_APP_PATH 指定 resources/app 目录
+  - 系统安装目录的安全提权流程将在后续版本提供
+  - 不要使用 sudo 或管理员身份运行整个工具
   - Cursor 更新后需重新运行 localize
 `);
 }
 
-function requireCursorPaths() {
-  const paths = detectCursorPath();
+function requireCursorPaths(options = {}) {
+  const paths = detectCursorPath({ appPath: options.appPath });
   if (!paths) {
-    console.error('❌ 未找到 Cursor 安装目录，请确认 Cursor 已安装。');
-    process.exit(1);
+    throw new Error(
+      '未找到 Cursor 安装目录。请确认 Cursor 已安装，或使用 --app-path 指定 resources/app 目录。'
+    );
   }
   return paths;
 }
 
-function ensureNotRunning() {
-  if (isCursorRunning()) {
-    console.error('\n❌ 检测到 Cursor 仍在运行。');
-    console.error('   请先完全退出 Cursor（Cmd+Q），再重新运行汉化。\n');
-    process.exit(1);
+function ensureNotRunning(paths) {
+  const processResult = detectCursorProcesses(paths);
+  if (processResult.status === 'running') {
+    const processIds = processResult.processes
+      .map((processInfo) => processInfo.pid)
+      .filter(Boolean)
+      .join(', ');
+    const processHint = processIds ? `（PID: ${processIds}）` : '';
+    throw new Error(`检测到 Cursor 仍在运行${processHint}。请完全退出 Cursor 后重试。`);
+  }
+
+  if (processResult.status === 'unknown') {
+    throw new Error(
+      `无法确认 Cursor 是否仍在运行：${processResult.reason || '未知原因'}。为避免损坏文件，本次操作已停止。`
+    );
   }
 }
 
-function cmdStatus() {
-  const paths = requireCursorPaths();
+function formatProcessStatus(processResult) {
+  if (processResult.status === 'running') return '是';
+  if (processResult.status === 'not-running') return '否';
+  return `未知（${processResult.reason || '检测失败'}）`;
+}
+
+function cmdStatus(options = {}) {
+  const paths = requireCursorPaths(options);
   const version = readCursorVersion(paths.appPath);
   const state = readState();
+  const stateMatchesInstallation = isStateForInstallation(state, paths.appPath);
+  const processResult = detectCursorProcesses(paths);
 
-  console.log('\n📋 Cursor 汉化状态\n');
+  console.log('\nCursor 汉化状态\n');
   console.log(`  Cursor 版本: ${version}`);
   console.log(`  安装路径:   ${paths.appPath}`);
+  console.log(`  路径来源:   ${paths.source}`);
   console.log(`  平台:       ${PLATFORM}`);
   console.log(`  当前用户:   ${isRoot() ? 'root' : process.env.USER || 'unknown'}`);
-  console.log(`  Cursor 运行: ${isCursorRunning() ? '是 ⚠️' : '否 ✅'}`);
+  console.log(`  Cursor 运行: ${formatProcessStatus(processResult)}`);
 
-  if (state.localizedVersion) {
+  if (stateMatchesInstallation && state.localizedVersion) {
     const outdated = state.localizedVersion !== version;
     console.log(`  上次汉化:   v${state.localizedVersion}${outdated ? ' ⚠️ 版本已更新，建议重新汉化' : ' ✅'}`);
     if (state.localizedAt) console.log(`  汉化时间:   ${state.localizedAt}`);
   } else {
     console.log('  上次汉化:   未汉化');
+    if (state.localizedVersion && !stateMatchesInstallation) {
+      console.log('  状态说明:   已忽略其他 Cursor 安装的汉化记录');
+    }
   }
 
   console.log(`\n  备份目录:   ${getBackupDir(version)}`);
@@ -84,35 +114,28 @@ function cmdStatus() {
     console.log(`    ${path.basename(t.rel)}: ${ok ? '✅ 有备份' : '— 无备份'} (${t.label})`);
   }
 
-  const localePath = path.join(require('os').homedir(), 'Library/Application Support/Cursor/User/locale.json');
-  if (fs.existsSync(localePath)) {
-    try {
-      const locale = JSON.parse(fs.readFileSync(localePath, 'utf8'));
-      console.log(`\n  VS Code 语言: ${locale.locale || '未设置'}`);
-    } catch {
-      /* ignore */
-    }
-  }
+  const localeConfiguration = readLocaleConfiguration();
+  console.log(`\n  locale.json: ${localeConfiguration.localePath}`);
+  console.log(`  VS Code 语言: ${localeConfiguration.locale || '未设置'}`);
 
   console.log('');
 }
 
 function cmdLocale() {
-  console.log('\n🌐 配置 VS Code 中文语言包...\n');
+  console.log('\n配置 VS Code 中文语言包...\n');
   const results = configureLocale();
-  for (const r of results) {
-    if (r.hint) console.log(`  ${r.hint}`);
-    if (r.localePath) console.log(`  ✅ locale.json → ${r.localePath} (${r.locale})`);
-    if (r.settingsUpdated) console.log('  ✅ settings.json 已写入 locale: zh-cn');
-    else if (r.existingLocale) console.log(`  ℹ️ settings.json 已有 locale: ${r.existingLocale}`);
+  for (const result of results) {
+    if (result.hint) console.log(`  ${result.hint}`);
+    if (result.localePath) {
+      console.log(`  locale.json -> ${result.localePath} (${result.locale})`);
+    }
   }
   console.log('\n请重启 Cursor 使 VS Code 基础界面生效。\n');
 }
 
-function cmdLocalize() {
-  ensureNotRunning();
-
-  const paths = requireCursorPaths();
+function cmdLocalize(options = {}) {
+  const paths = requireCursorPaths(options);
+  ensureNotRunning(paths);
   const version = readCursorVersion(paths.appPath);
   const writableFiles = [paths.productJsonPath, ...paths.targets.map((t) => t.abs)];
 
@@ -190,10 +213,9 @@ function cmdLocalize() {
   console.log('   若 Cursor 更新后界面恢复英文，请重新运行: node index.js localize\n');
 }
 
-function cmdRestore() {
-  ensureNotRunning();
-
-  const paths = requireCursorPaths();
+function cmdRestore(options = {}) {
+  const paths = requireCursorPaths(options);
+  ensureNotRunning(paths);
   const version = readCursorVersion(paths.appPath);
   const writableFiles = [paths.productJsonPath, ...paths.targets.map((t) => t.abs)];
 
@@ -213,7 +235,14 @@ function cmdRestore() {
     const hashTargets = paths.targets.filter((t) => t.hashKey).map((t) => ({ hashKey: t.hashKey, abs: t.abs }));
     fixProductHashes(paths.productJsonPath, hashTargets);
     if (PLATFORM === 'darwin') fixMacGatekeeper(paths.appBundlePath);
-    writeState({ ...readState(), localizedVersion: null, restoredAt: new Date().toISOString() });
+    const currentState = readState();
+    if (isStateForInstallation(currentState, paths.appPath)) {
+      writeState({
+        ...currentState,
+        localizedVersion: null,
+        restoredAt: new Date().toISOString(),
+      });
+    }
     console.log('\n🎉 已恢复英文原版！请重启 Cursor。\n');
   } else {
     console.log('\n⚠️ 未找到备份文件。请先执行 localize 创建备份。\n');
@@ -221,18 +250,23 @@ function cmdRestore() {
 }
 
 async function main() {
-  const args = process.argv.slice(2);
-  const actionFlag = args.find((a) => a.startsWith('--action='));
-  const command = actionFlag ? actionFlag.split('=')[1] : args[0] || 'help';
+  const options = parseCommandLine(process.argv.slice(2));
+  const { command } = options;
 
-  if (command === 'help' || command === '-h' || command === '--help') {
+  if (command === 'help') {
     printHelp();
     return;
   }
 
   if (command === 'status') {
-    cmdStatus();
+    cmdStatus(options);
     return;
+  }
+
+  if (isRoot()) {
+    throw new Error(
+      '请勿使用 sudo、root 或管理员身份运行写入命令，以免备份和用户配置写入错误的用户目录。'
+    );
   }
 
   if (command === 'locale') {
@@ -241,34 +275,21 @@ async function main() {
   }
 
   if (command === 'localize' || command === 'restore') {
-    const paths = requireCursorPaths();
+    const paths = requireCursorPaths(options);
 
-    if (needsElevation(paths) && !isRoot() && !actionFlag) {
-      console.log('🔐 需要管理员权限以修改 Cursor 安装目录...\n');
-      console.log('   即将弹出 macOS 授权对话框，请输入密码。\n');
-      try {
-        elevateAndRun(command);
-      } catch (e) {
-        console.error('❌ 提权失败:', e.message);
-        console.error('\n   请手动运行以下命令之一:');
-        console.error('   sudo node index.js', command);
-        console.error('   或在系统设置 → 隐私与安全性 → 完全磁盘访问权限 中授权终端\n');
-        process.exit(1);
-      }
-      return;
+    if (needsElevation(paths)) {
+      throw new Error(
+        'Cursor 安装目录不可写。当前版本不会提升整个 CLI 的权限；请等待受限安装 helper，或使用可写的 Cursor 安装目录。'
+      );
     }
 
-    if (command === 'localize') cmdLocalize();
-    else cmdRestore();
+    if (command === 'localize') cmdLocalize(options);
+    else cmdRestore(options);
     return;
   }
-
-  console.error(`未知命令: ${command}`);
-  printHelp();
-  process.exit(1);
 }
 
 main().catch((e) => {
-  console.error('❌ 错误:', e.message);
+  console.error('错误:', e.message);
   process.exit(1);
 });

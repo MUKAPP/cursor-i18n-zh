@@ -57,7 +57,7 @@ npm run audit
 
 ### 步骤 3：完全退出 Cursor
 
-macOS：**Cmd + Q**（不是只关窗口）
+macOS 使用 **Cmd + Q**；Linux 和 Windows 请退出所有 Cursor 进程。
 
 ### 步骤 4：应用汉化
 
@@ -65,8 +65,8 @@ macOS：**Cmd + Q**（不是只关窗口）
 node index.js localize
 ```
 
-- macOS 会弹出授权框，输入密码
-- 或：`sudo node index.js localize`
+- 系统目录不可写时，当前版本会安全停止，不会提升整个 CLI 的权限
+- 不要以 `sudo` 运行整个工具，以免用户配置和备份写入错误目录
 
 ### 步骤 5：重启 Cursor 并逐页检查
 
@@ -116,7 +116,7 @@ git push origin main
 ## 四、Cursor 更新后的维护流程
 
 1. Cursor 大版本更新后界面可能恢复英文
-2. **Cmd+Q** 退出 Cursor
+2. 完全退出 Cursor
 3. `git pull` 拉取最新汉化包（若从 GitHub 克隆）
 4. `node index.js localize`
 5. 重启 Cursor

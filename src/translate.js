@@ -1,5 +1,5 @@
 const fs = require('fs');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const { safeGlobalDict, riskyShortWords } = require('./dict');
 const { applyTrickyReplacements } = require('./tricky');
 const { applySettingsNav } = require('./settings-nav');
@@ -75,18 +75,23 @@ function translateFile(filePath) {
   return { changed, bytes: translated.length };
 }
 
-function fixMacGatekeeper(appBundlePath) {
+function fixMacGatekeeper(appBundlePath, options = {}) {
   if (!appBundlePath || !appBundlePath.endsWith('.app')) return;
+  const executeFileSync = options.executeFileSync || execFileSync;
 
   try {
-    execSync(`xattr -cr "${appBundlePath}"`, { stdio: 'pipe' });
+    executeFileSync('xattr', ['-cr', appBundlePath], { stdio: 'pipe' });
     console.log('  ✅ 已清除 macOS 隔离属性');
   } catch (e) {
     console.log(`  ⚠️ 清除隔离属性失败: ${e.message}`);
   }
 
   try {
-    execSync(`codesign --force --deep --sign - "${appBundlePath}"`, { stdio: 'pipe' });
+    executeFileSync(
+      'codesign',
+      ['--force', '--deep', '--sign', '-', appBundlePath],
+      { stdio: 'pipe' }
+    );
     console.log('  ✅ 已完成本地重签名');
   } catch (e) {
     console.log(`  ⚠️ 重签名失败（可能未安装 Xcode 命令行工具）: ${e.message}`);

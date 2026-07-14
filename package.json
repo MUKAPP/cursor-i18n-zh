@@ -11,7 +11,9 @@
     "restore": "node index.js restore",
     "status": "node index.js status",
     "locale": "node index.js locale",
-    "audit": "node scripts/audit.js"
+    "audit": "node scripts/audit.js",
+    "test": "node --test test/*.test.js",
+    "check": "npm test"
   },
   "engines": {
     "node": ">=18"
