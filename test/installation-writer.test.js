@@ -211,6 +211,50 @@ test('取消 pkexec 授权时返回明确错误', () => {
   );
 });
 
+test('取消授权导致 EPIPE 时仍返回明确错误', () => {
+  const writeRequest = {
+    protocolVersion: 1,
+    operation: 'replace-installation-files',
+    appPath: '/usr/share/cursor/resources/app',
+    files: [],
+  };
+  const brokenPipeError = Object.assign(new Error('write EPIPE'), {
+    code: 'EPIPE',
+  });
+
+  assert.throws(
+    () =>
+      invokeElevatedHelper(writeRequest, {
+        skipTrustCheck: true,
+        spawnProcessSync() {
+          return {
+            status: 126,
+            error: brokenPipeError,
+            stdout: '',
+            stderr: '',
+          };
+        },
+      }),
+    /管理员授权已取消/
+  );
+
+  assert.throws(
+    () =>
+      invokeElevatedHelper(writeRequest, {
+        skipTrustCheck: true,
+        spawnProcessSync() {
+          return {
+            status: null,
+            error: brokenPipeError,
+            stdout: '',
+            stderr: '',
+          };
+        },
+      }),
+    /管理员授权已取消或提权进程提前退出/
+  );
+});
+
 test('提权调用拒绝普通用户可写的 helper', () => {
   const rootDirectory = createTemporaryDirectory('cursor-i18n-writer-trust-');
   const helperPath = path.join(rootDirectory, 'elevated-helper.js');

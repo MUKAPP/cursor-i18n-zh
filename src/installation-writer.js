@@ -152,11 +152,14 @@ function invokeElevatedHelper(writeRequest, options = {}) {
     }
   );
 
-  if (result.error) {
-    throw new Error(`无法启动 pkexec: ${result.error.message}`);
-  }
   if (result.status === 126 || result.status === 127) {
     throw new Error('管理员授权已取消或无法获得授权');
+  }
+  if (result.error) {
+    if (result.error.code === 'EPIPE') {
+      throw new Error('管理员授权已取消或提权进程提前退出');
+    }
+    throw new Error(`无法启动 pkexec: ${result.error.message}`);
   }
 
   let response;
