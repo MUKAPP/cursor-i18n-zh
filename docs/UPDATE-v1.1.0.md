@@ -65,8 +65,11 @@ macOS 使用 **Cmd + Q**；Linux 和 Windows 请退出所有 Cursor 进程。
 node index.js localize
 ```
 
-- 系统目录不可写时，当前版本会安全停止，不会提升整个 CLI 的权限
+- Linux 系统目录不可写时，会在已安装受信任 helper 的前提下通过 `pkexec` 只写固定安装文件
 - 不要以 `sudo` 运行整个工具，以免用户配置和备份写入错误目录
+- helper 的安装步骤和允许路径见 `README.md` 的“Linux 提权 helper”章节
+- 工具会先在用户目录暂存并验证全部待写内容，再统一提交安装文件
+- 如果上次运行在提交过程中中断，本次 `localize` 会先根据事务 journal 补全状态或回滚部分写入
 
 ### 步骤 5：重启 Cursor 并逐页检查
 
@@ -85,6 +88,16 @@ node index.js status
 ```bash
 node index.js restore
 ```
+
+`restore` 使用与汉化相同的事务提交和冲突检查。当前安装文件与备份、最近一次汉化摘要均不一致时，工具会停止，避免覆盖 Cursor 更新或其他工具的修改。
+
+### 完整性校验说明
+
+- JavaScript 暂存内容会先进行严格 UTF-8 解码和语法编译检查，但不会执行
+- `product.json` 会进行严格 JSON 结构检查
+- 现有 checksum 必须能由原始文件字节准确重现，工具才会沿用相同算法与编码生成新值
+- 事务暂存目录位于 `~/.cursor-i18n-zh/transactions/`，备份仍位于 `~/.cursor-i18n-zh/backups/`
+- Linux 提权 helper 不读取备份、事务、状态或用户 HOME，只接收固定目标的最终字节和摘要
 
 ---
 
@@ -143,4 +156,10 @@ index.js                     ← VERSION 1.1.0
 package.json                 ← version 1.1.0
 README.md                    ← 功能表 + 更新日志
 docs/UPDATE-v1.1.0.md        ← 本文档
+src/installation-writer.js   ← 安装文件统一写入接口
+src/elevated-helper.js       ← Linux 受限提权 helper
+src/atomic-file.js           ← 原子写入工具
+src/content-validator.js     ← 暂存内容验证
+src/transaction.js           ← 事务 journal 与崩溃恢复
+src/hash.js                  ← 动态 checksum 识别与更新
 ```

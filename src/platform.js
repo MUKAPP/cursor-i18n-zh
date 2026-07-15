@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { execFileSync } = require('child_process');
+const { writeJsonAtomically } = require('./atomic-file');
 const { resolveHomeDirectory, resolveToolDataDirectory } = require('./user-context');
 
 const PLATFORM = os.platform();
@@ -9,17 +10,14 @@ const PLATFORM = os.platform();
 const TARGET_FILES = [
   {
     rel: 'out/vs/workbench/workbench.desktop.main.js',
-    hashKey: 'vs/workbench/workbench.desktop.main.js',
     label: 'Cursor Settings / Agent',
   },
   {
     rel: 'out/vs/workbench/workbench.glass.main.js',
-    hashKey: null,
     label: 'Glass 主页',
   },
   {
     rel: 'out/vs/workbench/workbench.anysphere-ui-automations.js',
-    hashKey: null,
     label: 'Automations 自动化页',
   },
 ];
@@ -376,18 +374,33 @@ function isCursorRunning(paths, options = {}) {
   return detectCursorProcesses(paths, options).status === 'running';
 }
 
-function hasWritePermission(filePath) {
+function hasWritePermission(filePath, options = {}) {
+  const fileSystem = options.fileSystem || fs;
+  const accessMode = options.accessMode || fs.constants.W_OK;
   try {
-    fs.accessSync(filePath, fs.constants.W_OK);
+    fileSystem.accessSync(filePath, accessMode);
     return true;
   } catch {
     return false;
   }
 }
 
-function needsElevation(paths) {
+function needsElevation(paths, options = {}) {
+  const fileSystem = options.fileSystem || fs;
   const files = [paths.productJsonPath, ...paths.targets.map((t) => t.abs)];
-  return files.some((f) => fs.existsSync(f) && !hasWritePermission(f));
+  const targetDirectories = new Set(
+    files
+      .filter((filePath) => fileSystem.existsSync(filePath))
+      .map((filePath) => path.dirname(filePath))
+  );
+
+  return [...targetDirectories].some(
+    (directoryPath) =>
+      !hasWritePermission(directoryPath, {
+        fileSystem,
+        accessMode: fs.constants.W_OK | fs.constants.X_OK,
+      })
+  );
 }
 
 function isRoot() {
@@ -431,9 +444,7 @@ function readState(options = {}) {
 
 function writeState(state, options = {}) {
   const statePath = getStatePath(options);
-  const dir = path.dirname(statePath);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(statePath, JSON.stringify(state, null, 2), 'utf8');
+  writeJsonAtomically(statePath, state, options);
 }
 
 function isStateForInstallation(state, appPath) {

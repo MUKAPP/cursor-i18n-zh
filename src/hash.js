@@ -1,43 +1,184 @@
-const fs = require('fs');
 const crypto = require('crypto');
 
-function detectHashAlgo(hash) {
-  const len = hash.length;
-  if (len <= 24) return 'md5';
-  if (len <= 44) return 'sha256';
-  if (len <= 88) return 'sha512';
-  return 'sha256';
+const SUPPORTED_HASH_ALGORITHMS = [
+  'md5',
+  'sha1',
+  'sha256',
+  'sha384',
+  'sha512',
+];
+
+const CHECKSUM_ENCODINGS = [
+  {
+    name: 'hex-lowercase',
+    encode(digestBuffer) {
+      return digestBuffer.toString('hex');
+    },
+  },
+  {
+    name: 'hex-uppercase',
+    encode(digestBuffer) {
+      return digestBuffer.toString('hex').toUpperCase();
+    },
+  },
+  {
+    name: 'base64-padded',
+    encode(digestBuffer) {
+      return digestBuffer.toString('base64');
+    },
+  },
+  {
+    name: 'base64-unpadded',
+    encode(digestBuffer) {
+      return digestBuffer.toString('base64').replace(/=+$/, '');
+    },
+  },
+  {
+    name: 'base64url-unpadded',
+    encode(digestBuffer) {
+      return digestBuffer.toString('base64url');
+    },
+  },
+  {
+    name: 'base64url-padded',
+    encode(digestBuffer) {
+      const value = digestBuffer.toString('base64url');
+      return value.padEnd(Math.ceil(value.length / 4) * 4, '=');
+    },
+  },
+];
+
+function normalizeChecksumPath(filePath) {
+  return filePath.replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\//, '');
 }
 
-function fixProductHashes(productJsonPath, updatedFiles) {
-  if (!fs.existsSync(productJsonPath)) return [];
+function buildChecksumPathCandidates(relativePath) {
+  const normalizedPath = normalizeChecksumPath(relativePath);
+  const candidates = new Set([normalizedPath]);
+  if (normalizedPath.startsWith('out/')) {
+    candidates.add(normalizedPath.slice('out/'.length));
+  }
+  return [...candidates];
+}
 
-  const productJson = JSON.parse(fs.readFileSync(productJsonPath, 'utf8'));
-  const fixed = [];
+function checksumKeyMatchesRelativePath(checksumKey, relativePath) {
+  const normalizedChecksumKey = normalizeChecksumPath(checksumKey);
+  return buildChecksumPathCandidates(relativePath).includes(normalizedChecksumKey);
+}
 
-  if (!productJson.checksums) return fixed;
+function inferChecksumFormat(originalContent, existingChecksum) {
+  if (typeof existingChecksum !== 'string' || existingChecksum.length === 0) {
+    throw new Error('现有 checksum 不是非空字符串');
+  }
 
-  for (const { hashKey, abs } of updatedFiles) {
-    if (!hashKey || !fs.existsSync(abs)) continue;
-
-    const content = fs.readFileSync(abs);
-    for (const key of Object.keys(productJson.checksums)) {
-      if (key.endsWith(hashKey)) {
-        const oldHash = productJson.checksums[key];
-        const algo = detectHashAlgo(oldHash);
-        const newHash = crypto.createHash(algo).update(content).digest('base64').replace(/=+$/, '');
-        productJson.checksums[key] = newHash;
-        fixed.push(hashKey);
-        break;
+  const matchingFormats = [];
+  for (const algorithm of SUPPORTED_HASH_ALGORITHMS) {
+    const digestBuffer = crypto.createHash(algorithm).update(originalContent).digest();
+    for (const encoding of CHECKSUM_ENCODINGS) {
+      if (encoding.encode(digestBuffer) === existingChecksum) {
+        matchingFormats.push({ algorithm, encoding });
       }
     }
   }
 
-  if (fixed.length > 0) {
-    fs.writeFileSync(productJsonPath, JSON.stringify(productJson, null, '\t'), 'utf8');
+  if (matchingFormats.length === 0) {
+    throw new Error('无法用原始文件重现现有 checksum');
   }
 
-  return fixed;
+  const algorithms = new Set(matchingFormats.map((format) => format.algorithm));
+  if (algorithms.size !== 1) {
+    throw new Error('现有 checksum 可由多种算法重现，无法安全确定格式');
+  }
+
+  return matchingFormats;
 }
 
-module.exports = { fixProductHashes };
+function encodeUpdatedChecksum(updatedContent, matchingFormats) {
+  const generatedChecksums = new Set(
+    matchingFormats.map(({ algorithm, encoding }) => {
+      const digestBuffer = crypto.createHash(algorithm).update(updatedContent).digest();
+      return encoding.encode(digestBuffer);
+    })
+  );
+
+  if (generatedChecksums.size !== 1) {
+    throw new Error('现有 checksum 编码格式存在歧义，无法安全生成新值');
+  }
+
+  return [...generatedChecksums][0];
+}
+
+function updateProductChecksums(productJsonContent, modifiedFiles) {
+  const productJson = JSON.parse(productJsonContent);
+  if (!productJson || typeof productJson !== 'object' || Array.isArray(productJson)) {
+    throw new Error('product.json 根节点必须是对象');
+  }
+
+  const changedFiles = modifiedFiles.filter((modifiedFile) => {
+    const originalContent = Buffer.from(modifiedFile.originalContent);
+    const updatedContent = Buffer.from(modifiedFile.updatedContent);
+    return !originalContent.equals(updatedContent);
+  });
+
+  if (productJson.checksums === undefined) {
+    return {
+      content: Buffer.isBuffer(productJsonContent)
+        ? Buffer.from(productJsonContent)
+        : Buffer.from(productJsonContent, 'utf8'),
+      matchedChecksumKeys: [],
+      untrackedFiles: changedFiles.map((file) => file.relativePath),
+    };
+  }
+  if (
+    !productJson.checksums ||
+    typeof productJson.checksums !== 'object' ||
+    Array.isArray(productJson.checksums)
+  ) {
+    throw new Error('product.json checksums 必须是对象');
+  }
+
+  const matchedChecksumKeys = [];
+  const untrackedFiles = [];
+  for (const modifiedFile of changedFiles) {
+    const originalContent = Buffer.from(modifiedFile.originalContent);
+    const updatedContent = Buffer.from(modifiedFile.updatedContent);
+
+    const matchingKeys = Object.keys(productJson.checksums).filter((checksumKey) =>
+      checksumKeyMatchesRelativePath(checksumKey, modifiedFile.relativePath)
+    );
+    if (matchingKeys.length === 0) {
+      untrackedFiles.push(modifiedFile.relativePath);
+      continue;
+    }
+    if (matchingKeys.length > 1) {
+      throw new Error(
+        `${modifiedFile.relativePath} 匹配到多个 checksum 条目: ${matchingKeys.join(', ')}`
+      );
+    }
+
+    const checksumKey = matchingKeys[0];
+    const matchingFormats = inferChecksumFormat(
+      originalContent,
+      productJson.checksums[checksumKey]
+    );
+    productJson.checksums[checksumKey] = encodeUpdatedChecksum(
+      updatedContent,
+      matchingFormats
+    );
+    matchedChecksumKeys.push(checksumKey);
+  }
+
+  return {
+    content: Buffer.from(JSON.stringify(productJson, null, '\t'), 'utf8'),
+    matchedChecksumKeys,
+    untrackedFiles,
+  };
+}
+
+module.exports = {
+  CHECKSUM_ENCODINGS,
+  SUPPORTED_HASH_ALGORITHMS,
+  checksumKeyMatchesRelativePath,
+  inferChecksumFormat,
+  updateProductChecksums,
+};

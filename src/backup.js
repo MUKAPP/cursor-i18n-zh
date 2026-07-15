@@ -32,21 +32,11 @@ function backupPath(filePath, cursorVersion, options = {}) {
   );
 }
 
-function ensureWritable(filePath) {
-  try {
-    fs.chmodSync(filePath, 0o644);
-  } catch {
-    /* ignore */
-  }
-}
-
 function ensureBackup(filePath, cursorVersion, options = {}) {
   ensureBackupDir(cursorVersion, options);
   const bp = backupPath(filePath, cursorVersion, options);
   if (fs.existsSync(bp)) {
-    ensureWritable(filePath);
-    fs.copyFileSync(bp, filePath);
-    return { action: 'restored-from-backup', path: bp };
+    return { action: 'existing-backup', path: bp };
   }
   if (fs.existsSync(filePath)) {
     fs.copyFileSync(filePath, bp);
@@ -55,18 +45,29 @@ function ensureBackup(filePath, cursorVersion, options = {}) {
   return null;
 }
 
-function restoreFromBackup(filePath, cursorVersion, options = {}) {
+function resolveBackupPath(filePath, cursorVersion, options = {}) {
   const bp = backupPath(filePath, cursorVersion, options);
-  if (!fs.existsSync(bp)) {
-    // 兼容旧版：应用包内的 .backup 文件
-    const legacy = `${filePath}.backup`;
-    if (!fs.existsSync(legacy)) return false;
-    ensureWritable(filePath);
-    fs.copyFileSync(legacy, filePath);
-    return true;
-  }
-  ensureWritable(filePath);
-  fs.copyFileSync(bp, filePath);
+  if (fs.existsSync(bp)) return bp;
+
+  const legacyBackupPath = `${filePath}.backup`;
+  return fs.existsSync(legacyBackupPath) ? legacyBackupPath : null;
+}
+
+function readBackup(filePath, cursorVersion, options = {}) {
+  const resolvedBackupPath = resolveBackupPath(filePath, cursorVersion, options);
+  if (!resolvedBackupPath) return null;
+
+  return {
+    path: resolvedBackupPath,
+    content: fs.readFileSync(resolvedBackupPath),
+  };
+}
+
+function restoreFromBackup(filePath, cursorVersion, options = {}) {
+  const backup = readBackup(filePath, cursorVersion, options);
+  if (!backup) return false;
+
+  fs.copyFileSync(backup.path, filePath);
   return true;
 }
 
@@ -86,6 +87,8 @@ function listBackupVersions(options = {}) {
 module.exports = {
   backupPath,
   ensureBackup,
+  readBackup,
+  resolveBackupPath,
   restoreFromBackup,
   hasBackup,
   listBackupVersions,
