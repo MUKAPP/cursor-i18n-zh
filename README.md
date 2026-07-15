@@ -71,7 +71,18 @@ sudo install -o root -g root -m 0755 src/elevated-helper.js \
   /usr/local/libexec/cursor-i18n-zh/elevated-helper.js
 ```
 
-helper 使用 `/usr/bin/node`，并要求系统已安装 `pkexec`。之后仍以普通用户运行：
+helper 使用系统级 Node.js（默认 `/usr/bin/node`），并要求系统已安装 `pkexec`。
+
+注意：提权写入不能使用 nvm、fnm 或用户目录中的 Node。若本机只有 nvm 的 Node，请先安装系统包，例如：
+
+```bash
+sudo apt update
+sudo apt install -y nodejs
+# 确认存在系统 Node
+ls -l /usr/bin/node
+```
+
+之后仍以普通用户运行：
 
 ```bash
 node index.js localize --app-path /usr/share/cursor/resources/app

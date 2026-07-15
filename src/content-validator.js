@@ -1,7 +1,10 @@
 'use strict';
 
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { spawnSync } = require('child_process');
 const { TextDecoder } = require('util');
-const vm = require('vm');
 
 const strictUtf8Decoder = new TextDecoder('utf-8', { fatal: true });
 
@@ -14,11 +17,37 @@ function decodeUtf8(content, relativePath) {
 }
 
 function validateJavaScriptContent(content, relativePath) {
-  const sourceCode = decodeUtf8(content, relativePath);
+  // 先确认 UTF-8，再做语法检查。
+  // Cursor workbench 打包文件可能包含 export 等 ES module 语法，
+  // vm.Script 只能解析普通脚本，因此改用 node --check。
+  decodeUtf8(content, relativePath);
+
+  const temporaryDirectory = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'cursor-i18n-zh-js-check-')
+  );
+  const temporaryFilePath = path.join(temporaryDirectory, 'content.js');
+
   try {
-    new vm.Script(sourceCode, { filename: relativePath });
-  } catch (error) {
-    throw new Error(`${relativePath} JavaScript 语法无效: ${error.message}`);
+    fs.writeFileSync(temporaryFilePath, Buffer.from(content));
+    const checkResult = spawnSync(process.execPath, ['--check', temporaryFilePath], {
+      encoding: 'utf8',
+      maxBuffer: 4 * 1024 * 1024,
+    });
+
+    if (checkResult.status === 0) {
+      return;
+    }
+
+    const errorOutput = `${checkResult.stderr || ''}${checkResult.stdout || ''}`.trim();
+    const firstErrorLine = errorOutput
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find(Boolean);
+    throw new Error(
+      `${relativePath} JavaScript 语法无效: ${firstErrorLine || 'node --check 失败'}`
+    );
+  } finally {
+    fs.rmSync(temporaryDirectory, { recursive: true, force: true });
   }
 }
 

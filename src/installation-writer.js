@@ -104,12 +104,36 @@ function invokeElevatedHelper(writeRequest, options = {}) {
   if (!skipTrustCheck) {
     try {
       trustedPkexecPath = assertTrustedRootFile(pkexecPath, 'pkexec', { fileSystem });
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        throw new Error(
+          `未找到受信任的 pkexec（默认 ${DEFAULT_PKEXEC_PATH}）。请安装 policykit-1 后重试。原始错误: ${error.message}`
+        );
+      }
+      throw error;
+    }
+
+    try {
       trustedNodePath = assertTrustedRootFile(nodePath, '系统 Node.js', { fileSystem });
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        throw new Error(
+          `未找到受信任的系统 Node.js（默认 ${DEFAULT_SYSTEM_NODE_PATH}）。` +
+            '提权 helper 不能使用 nvm/用户目录中的 Node，请安装系统包，例如: sudo apt install nodejs。' +
+            `原始错误: ${error.message}`
+        );
+      }
+      throw error;
+    }
+
+    try {
       trustedHelperPath = assertTrustedRootFile(helperPath, '提权 helper', { fileSystem });
     } catch (error) {
       if (error.code === 'ENOENT') {
         throw new Error(
-          `未安装受信任的 Linux 提权 helper。请先按 README 的“Linux 提权 helper”步骤安装。原始错误: ${error.message}`
+          `未安装受信任的 Linux 提权 helper（默认 ${DEFAULT_HELPER_PATH}）。` +
+            '请先按 README 的“Linux 提权 helper”步骤安装。' +
+            `原始错误: ${error.message}`
         );
       }
       throw error;

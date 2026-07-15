@@ -18,6 +18,16 @@ test('JavaScript 验证只编译而不执行代码', () => {
   assert.equal(globalThis.cursorI18nValidationSideEffect, undefined);
 });
 
+test('JavaScript 验证接受包含 export 的 ES module 语法', () => {
+  validateJavaScriptContent(
+    Buffer.from(
+      'export function __extends(derived, base) {\n  return derived;\n}\n',
+      'utf8'
+    ),
+    'workbench.desktop.main.js'
+  );
+});
+
 test('内容验证拒绝语法错误、无效 UTF-8 和异常缩小', () => {
   assert.throws(
     () =>
