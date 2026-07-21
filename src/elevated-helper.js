@@ -254,7 +254,12 @@ function detectLinuxCursorStatus(appPath, options = {}) {
   }
 }
 
-function fsyncDirectory(directoryPath, fileSystem = fs) {
+function fsyncDirectory(directoryPath, fileSystem = fs, platform = process.platform) {
+  // Windows 上对目录描述符 fsync 常返回 EPERM；文件内容已在 rename 前完成 fsync。
+  if (platform === 'win32') {
+    return;
+  }
+
   let directoryDescriptor;
   try {
     directoryDescriptor = fileSystem.openSync(directoryPath, 'r');
@@ -268,6 +273,7 @@ function fsyncDirectory(directoryPath, fileSystem = fs) {
 
 function replaceFileAtomically(targetPath, content, metadata, options = {}) {
   const fileSystem = options.fileSystem || fs;
+  const platform = options.platform || process.platform;
   const targetDirectory = path.dirname(targetPath);
   const temporaryPath = path.join(
     targetDirectory,
@@ -294,7 +300,7 @@ function replaceFileAtomically(targetPath, content, metadata, options = {}) {
     temporaryDescriptor = undefined;
     fileSystem.renameSync(temporaryPath, targetPath);
     targetReplaced = true;
-    fsyncDirectory(targetDirectory, fileSystem);
+    fsyncDirectory(targetDirectory, fileSystem, platform);
   } catch (error) {
     error.targetReplaced = targetReplaced;
     if (temporaryDescriptor !== undefined) {

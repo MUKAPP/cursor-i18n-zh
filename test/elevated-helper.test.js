@@ -228,6 +228,55 @@ test('helper 多文件提交失败时回滚已写入文件', () => {
   }
 });
 
+test('Windows 原子替换跳过目录 fsync', () => {
+  const rootDirectory = createTemporaryDirectory('cursor-i18n-helper-win-fsync-');
+  const appPath = createCursorInstallation(rootDirectory);
+  const desktopPath = path.join(
+    appPath,
+    'out/vs/workbench/workbench.desktop.main.js'
+  );
+  const originalContent = fs.readFileSync(desktopPath);
+  const updatedContent = Buffer.from('console.log("已汉化");\n', 'utf8');
+  const originalOpenSync = fs.openSync;
+  let directoryOpenCount = 0;
+
+  try {
+    fs.openSync = function patchedOpenSync(filePath, flags, mode) {
+      if (filePath === path.dirname(desktopPath) && flags === 'r') {
+        directoryOpenCount += 1;
+        throw Object.assign(new Error('simulated directory fsync EPERM'), {
+          code: 'EPERM',
+        });
+      }
+      return originalOpenSync.call(this, filePath, flags, mode);
+    };
+
+    replaceFileAtomically(
+      desktopPath,
+      updatedContent,
+      { mode: 0o644 },
+      { platform: 'win32' }
+    );
+
+    assert.equal(directoryOpenCount, 0);
+    assert.deepEqual(fs.readFileSync(desktopPath), updatedContent);
+
+    assert.throws(
+      () =>
+        replaceFileAtomically(
+          desktopPath,
+          originalContent,
+          { mode: 0o644 },
+          { platform: 'linux' }
+        ),
+      /EPERM|simulated directory fsync/
+    );
+  } finally {
+    fs.openSync = originalOpenSync;
+    removeTemporaryDirectory(rootDirectory);
+  }
+});
+
 test('helper 默认拒绝普通用户可替换的目标父目录', () => {
   const rootDirectory = createTemporaryDirectory('cursor-i18n-helper-trust-');
   const appPath = createCursorInstallation(rootDirectory);

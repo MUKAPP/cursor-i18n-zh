@@ -93,9 +93,58 @@ function inferChecksumFormat(originalContent, existingChecksum) {
   return matchingFormats;
 }
 
-function encodeUpdatedChecksum(updatedContent, matchingFormats) {
+function getBase64EncodingFamily(encodingName) {
+  if (encodingName.startsWith('base64url-')) {
+    return 'base64url';
+  }
+  if (encodingName.startsWith('base64-')) {
+    return 'base64';
+  }
+  return null;
+}
+
+function resolveBase64EncodingAmbiguity(matchingFormats, checksumValues) {
+  const matchingFamilies = new Set(
+    matchingFormats
+      .map(({ encoding }) => getBase64EncodingFamily(encoding.name))
+      .filter(Boolean)
+  );
+  if (!matchingFamilies.has('base64') || !matchingFamilies.has('base64url')) {
+    return matchingFormats;
+  }
+
+  const stringChecksumValues = checksumValues.filter(
+    (checksumValue) => typeof checksumValue === 'string'
+  );
+  const hasStandardBase64Evidence = stringChecksumValues.some((checksumValue) =>
+    /[+/]/.test(checksumValue)
+  );
+  const hasBase64UrlEvidence = stringChecksumValues.some((checksumValue) =>
+    /[-_]/.test(checksumValue)
+  );
+
+  if (hasStandardBase64Evidence && hasBase64UrlEvidence) {
+    throw new Error(
+      'product.json checksums 同时包含标准 Base64 与 Base64URL 特征，无法安全确定编码格式'
+    );
+  }
+  if (!hasStandardBase64Evidence && !hasBase64UrlEvidence) {
+    return matchingFormats;
+  }
+
+  const selectedFamily = hasStandardBase64Evidence ? 'base64' : 'base64url';
+  return matchingFormats.filter(
+    ({ encoding }) => getBase64EncodingFamily(encoding.name) === selectedFamily
+  );
+}
+
+function encodeUpdatedChecksum(updatedContent, matchingFormats, checksumValues) {
+  const resolvedFormats = resolveBase64EncodingAmbiguity(
+    matchingFormats,
+    checksumValues
+  );
   const generatedChecksums = new Set(
-    matchingFormats.map(({ algorithm, encoding }) => {
+    resolvedFormats.map(({ algorithm, encoding }) => {
       const digestBuffer = crypto.createHash(algorithm).update(updatedContent).digest();
       return encoding.encode(digestBuffer);
     })
@@ -137,6 +186,7 @@ function updateProductChecksums(productJsonContent, modifiedFiles) {
     throw new Error('product.json checksums 必须是对象');
   }
 
+  const checksumEvidenceValues = Object.values(productJson.checksums);
   const matchedChecksumKeys = [];
   const untrackedFiles = [];
   for (const modifiedFile of changedFiles) {
@@ -163,7 +213,8 @@ function updateProductChecksums(productJsonContent, modifiedFiles) {
     );
     productJson.checksums[checksumKey] = encodeUpdatedChecksum(
       updatedContent,
-      matchingFormats
+      matchingFormats,
+      checksumEvidenceValues
     );
     matchedChecksumKeys.push(checksumKey);
   }

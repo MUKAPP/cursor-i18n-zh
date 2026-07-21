@@ -9,6 +9,8 @@ const {
 
 const ORIGINAL_CONTENT = Buffer.from('console.log("original");\r\n', 'utf8');
 const UPDATED_CONTENT = Buffer.from('console.log("translated");\r\n', 'utf8');
+const AMBIGUOUS_BASE64_CONTENT = Buffer.from('checksum-vector-4', 'utf8');
+const DISTINCT_BASE64_CONTENT = Buffer.from('checksum-vector-0', 'utf8');
 const GLASS_RELATIVE_PATH =
   'out/vs/workbench/workbench.glass.main.js';
 
@@ -95,6 +97,107 @@ test('product.json 没有 checksums 时只报告内容实际变化的文件', ()
   assert.deepEqual(result.untrackedFiles, [
     'out/vs/workbench/workbench.desktop.main.js',
   ]);
+});
+
+test('动态 checksum 使用其他条目区分标准 Base64 与 Base64URL', async (testContext) => {
+  const cases = [
+    {
+      encodingName: 'base64-unpadded',
+      evidenceKey: 'vs/workbench/workbench.desktop.main.css',
+    },
+    {
+      encodingName: 'base64url-unpadded',
+      evidenceKey: 'vs/workbench/workbench.desktop.main.css',
+    },
+  ];
+
+  for (const { encodingName, evidenceKey } of cases) {
+    await testContext.test(encodingName, () => {
+      const checksumKey = 'vs/workbench/workbench.glass.main.js';
+      const productJson = {
+        checksums: {
+          [checksumKey]: createChecksum(
+            'sha256',
+            encodingName,
+            AMBIGUOUS_BASE64_CONTENT
+          ),
+          [evidenceKey]: createChecksum(
+            'sha256',
+            encodingName,
+            DISTINCT_BASE64_CONTENT
+          ),
+        },
+      };
+      const result = updateProductChecksums(
+        Buffer.from(JSON.stringify(productJson), 'utf8'),
+        [
+          {
+            relativePath: GLASS_RELATIVE_PATH,
+            originalContent: AMBIGUOUS_BASE64_CONTENT,
+            updatedContent: DISTINCT_BASE64_CONTENT,
+          },
+        ]
+      );
+      const updatedProductJson = JSON.parse(result.content);
+
+      assert.equal(
+        updatedProductJson.checksums[checksumKey],
+        createChecksum('sha256', encodingName, DISTINCT_BASE64_CONTENT)
+      );
+    });
+  }
+});
+
+test('动态 checksum 在编码证据缺失或冲突时继续安全停止', () => {
+  const checksumKey = 'vs/workbench/workbench.glass.main.js';
+  const ambiguousChecksum = createChecksum(
+    'sha256',
+    'base64-unpadded',
+    AMBIGUOUS_BASE64_CONTENT
+  );
+  const modifiedFiles = [
+    {
+      relativePath: GLASS_RELATIVE_PATH,
+      originalContent: AMBIGUOUS_BASE64_CONTENT,
+      updatedContent: DISTINCT_BASE64_CONTENT,
+    },
+  ];
+
+  assert.throws(
+    () =>
+      updateProductChecksums(
+        Buffer.from(
+          JSON.stringify({ checksums: { [checksumKey]: ambiguousChecksum } }),
+          'utf8'
+        ),
+        modifiedFiles
+      ),
+    /编码格式存在歧义/
+  );
+
+  const productJsonWithConflictingEvidence = {
+    checksums: {
+      [checksumKey]: ambiguousChecksum,
+      'standard-base64-evidence': createChecksum(
+        'sha256',
+        'base64-unpadded',
+        DISTINCT_BASE64_CONTENT
+      ),
+      'base64url-evidence': createChecksum(
+        'sha256',
+        'base64url-unpadded',
+        DISTINCT_BASE64_CONTENT
+      ),
+    },
+  };
+  assert.throws(
+    () =>
+      updateProductChecksums(
+        Buffer.from(JSON.stringify(productJsonWithConflictingEvidence), 'utf8'),
+        modifiedFiles
+      ),
+    /同时包含标准 Base64 与 Base64URL 特征/
+  );
 });
 
 test('动态 checksum 拒绝路径歧义和无法重现的旧值', () => {

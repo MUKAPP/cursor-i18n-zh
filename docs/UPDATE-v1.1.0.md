@@ -96,6 +96,7 @@ node index.js restore
 - JavaScript 暂存内容会先进行严格 UTF-8 解码和语法编译检查，但不会执行
 - `product.json` 会进行严格 JSON 结构检查
 - 现有 checksum 必须能由原始文件字节准确重现，工具才会沿用相同算法与编码生成新值
+- 原始 checksum 同时符合 Base64 与 Base64URL 时，会参考同一 `checksums` 对象中其他条目的编码特征；证据缺失或冲突时仍会停止
 - 事务暂存目录位于 `~/.cursor-i18n-zh/transactions/`，备份仍位于 `~/.cursor-i18n-zh/backups/`
 - Linux 提权 helper 不读取备份、事务、状态或用户 HOME，只接收固定目标的最终字节和摘要
 
